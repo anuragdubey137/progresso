@@ -29,7 +29,7 @@ const handler = NextAuth({
           );
           if (passwordValidation) {
             return {
-              id: existingUser.id.toString(),
+              id: existingUser.id,
               username: existingUser.username,
             };
           } else {
@@ -45,7 +45,7 @@ const handler = NextAuth({
             });
 
             return {
-              id: user.id.toString(),
+              id: user.id,
               username: user.username,
             };
           } catch (e) {
