@@ -344,7 +344,7 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-lg shadow ">
             <div className="flex items-center">
               <div className="p-2 bg-green-100 rounded-lg">
                 <CheckCircle2 className="w-6 h-6 text-green-600" />
