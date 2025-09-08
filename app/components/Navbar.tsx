@@ -12,7 +12,7 @@ export function Navbar() {
                 progresso
             </div>
             <div>
-                {session.data?.user && <Button  onClick={()=>signOut()}>Logout</Button>}
+               
                 {!session.data?.user && <Button onClick={()=>signIn()}>signIn</Button>}
             </div>
         </div>

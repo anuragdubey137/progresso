@@ -15,3 +15,12 @@ export async function POST (req:NextRequest){
         projects
     })
 }
+
+export async function GET(req:NextRequest){
+    try{
+    const project = await prismaClient.project.findMany();
+    return NextResponse.json(project);
+}   catch(error){
+    return NextResponse.json({error:"Something went wrong"});
+}
+}
