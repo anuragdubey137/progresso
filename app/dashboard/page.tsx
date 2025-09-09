@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { signOut, useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { 
   Plus, 
   Calendar, 
@@ -16,8 +18,7 @@ import {
   X,
   PlayCircle
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { Button } from '@/components/ui/button';
 
 interface Task {
   id: string;
@@ -44,92 +45,16 @@ interface Project {
   id: string;
   name: string;
   deadline?: string;
-  members: ProjectMember[];
+  projects: Project[];
   tasks: Task[];
 }
 
 const Dashboard = () => {
   const { data: session, status } = useSession();
   const router = useRouter();
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/api/auth/signin');
-    }
-  }, [status, router]);
   
-  const [projects, setProjects] = useState<Project[]>([
-    // Mock data for demonstration
-    {
-      id: '1',
-      name: 'Project Alpha',
-      deadline: '2024-12-31',
-      members: [
-        {
-          id: '1',
-          userId: '1',
-          projectId: '1',
-          user: { id: '1', username: 'john_doe', name: 'John Doe' }
-        },
-        {
-          id: '2',
-          userId: '2',
-          projectId: '1',
-          user: { id: '2', username: 'jane_smith', name: 'Jane Smith' }
-        }
-      ],
-      tasks: [
-        {
-          id: '1',
-          title: 'Setup project structure',
-          description: 'Initialize the project with basic structure',
-          status: 'DONE',
-          deadline: '2024-11-15',
-          projectId: '1'
-        },
-        {
-          id: '2',
-          title: 'Design UI mockups',
-          description: 'Create wireframes and mockups',
-          status: 'IN_PROGRESS',
-          deadline: '2024-11-20',
-          projectId: '1'
-        },
-        {
-          id: '3',
-          title: 'Implement authentication',
-          description: 'Add user login and registration',
-          status: 'TODO',
-          deadline: '2024-11-25',
-          projectId: '1'
-        }
-      ]
-    },
-    {
-      id: '2',
-      name: 'Project Beta',
-      deadline: '2025-01-15',
-      members: [
-        {
-          id: '3',
-          userId: '1',
-          projectId: '2',
-          user: { id: '1', username: 'john_doe', name: 'John Doe' }
-        }
-      ],
-      tasks: [
-        {
-          id: '4',
-          title: 'Research requirements',
-          description: 'Gather and analyze requirements',
-          status: 'TODO',
-          deadline: '2024-12-01',
-          projectId: '2'
-        }
-      ]
-    }
-  ]);
-  
-  const [loading, setLoading] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
@@ -150,15 +75,14 @@ const Dashboard = () => {
     deadline: ''
   });
 
-  // BACKEND CALL: Replace with actual authentication redirect
+  // Redirect if not authenticated
   useEffect(() => {
     if (status === 'unauthenticated') {
-      // router.push('/api/auth/signin');
-      console.log('Would redirect to signin page');
+      router.push('/api/auth/signin');
     }
-  }, [status]);
+  }, [status, router]);
 
-  // BACKEND CALL: Replace with actual API call to fetch projects
+  // Fetch projects on component mount
   useEffect(() => {
     if (session?.user) {
       fetchProjects();
@@ -168,16 +92,16 @@ const Dashboard = () => {
   const fetchProjects = async () => {
     try {
       setLoading(true);
-      // BACKEND CALL: Replace with actual API call
-      // const response = await fetch('/api/projects');
-      console.log('Would fetch projects from /api/projects');
-      
-      // Mock delay to simulate API call
-      setTimeout(() => {
-        setLoading(false);
-      }, 500);
+      const response = await fetch('/api/projects');
+      if (response.ok) {
+        const data = await response.json();
+        setProjects(data);
+      } else {
+        console.error('Failed to fetch projects');
+      }
     } catch (error) {
       console.error('Error fetching projects:', error);
+    } finally {
       setLoading(false);
     }
   };
@@ -189,29 +113,26 @@ const Dashboard = () => {
     }
 
     try {
-      // BACKEND CALL: Replace with actual API call to create project
-      console.log('Would create project:', {
-        name: newProject.name,
-        deadline: newProject.deadline || null,
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newProject.name,
+          deadline: newProject.deadline || null,
+        }),
       });
 
-      // Mock project creation
-      const mockProject: Project = {
-        id: Date.now().toString(),
-        name: newProject.name,
-        deadline: newProject.deadline || undefined,
-        members: [{
-          id: Date.now().toString(),
-          userId: '1',
-          projectId: Date.now().toString(),
-          user: { id: '1', username: 'john_doe', name: 'John Doe' }
-        }],
-        tasks: []
-      };
-
-      setProjects([...projects, mockProject]);
-      setNewProject({ name: '', deadline: '' });
-      setShowCreateProject(false);
+      if (response.ok) {
+        const project = await response.json();
+        setProjects([...projects, project]);
+        setNewProject({ name: '', deadline: '' });
+        setShowCreateProject(false);
+      } else {
+        const error = await response.json();
+        alert(error.error || 'Failed to create project');
+      }
     } catch (error) {
       console.error('Error creating project:', error);
       alert('Failed to create project');
@@ -225,33 +146,33 @@ const Dashboard = () => {
     }
 
     try {
-      // BACKEND CALL: Replace with actual API call to add member
-      console.log('Would add member to project:', {
-        projectId: selectedProject.id,
-        username: newMember.username,
+      const response = await fetch('/api/projects/projectMember', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          username: newMember.username,
+        }),
       });
 
-      // Mock member addition
-      const mockMember: ProjectMember = {
-        id: Date.now().toString(),
-        userId: Date.now().toString(),
-        projectId: selectedProject.id,
-        user: {
-          id: Date.now().toString(),
-          username: newMember.username,
-          name: newMember.username
-        }
-      };
-
-      const updatedProjects = projects.map(project =>
-        project.id === selectedProject.id
-          ? { ...project, members: [...project.members, mockMember] }
-          : project
-      );
-      setProjects(updatedProjects);
-      setNewMember({ username: '' });
-      setShowAddMember(false);
-      setSelectedProject(null);
+      if (response.ok) {
+        const member = await response.json();
+        // Update the project in state
+        const updatedProjects = projects.map(project =>
+          project.id === selectedProject.id
+            ? { ...project, members: [...project.members, member] }
+            : project
+        );
+        setProjects(updatedProjects);
+        setNewMember({ username: '' });
+        setShowAddMember(false);
+        setSelectedProject(null);
+      } else {
+        const error = await response.json();
+        alert(error.error || 'Failed to add member');
+      }
     } catch (error) {
       console.error('Error adding member:', error);
       alert('Failed to add member');
@@ -265,33 +186,35 @@ const Dashboard = () => {
     }
 
     try {
-      // BACKEND CALL: Replace with actual API call to create task
-      console.log('Would create task:', {
-        title: newTask.title,
-        description: newTask.description || null,
-        deadline: newTask.deadline || null,
-        projectId: selectedProject.id,
+      const response = await fetch('/api/projects/task', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: newTask.title,
+          description: newTask.description || null,
+          deadline: newTask.deadline || null,
+          projectId: selectedProject.id,
+        }),
       });
 
-      // Mock task creation
-      const mockTask: Task = {
-        id: Date.now().toString(),
-        title: newTask.title,
-        description: newTask.description || undefined,
-        status: 'TODO',
-        deadline: newTask.deadline || undefined,
-        projectId: selectedProject.id
-      };
-
-      const updatedProjects = projects.map(project =>
-        project.id === selectedProject.id
-          ? { ...project, tasks: [...project.tasks, mockTask] }
-          : project
-      );
-      setProjects(updatedProjects);
-      setNewTask({ title: '', description: '', deadline: '' });
-      setShowCreateTask(false);
-      setSelectedProject(null);
+      if (response.ok) {
+        const task = await response.json();
+        // Update the project in state
+        const updatedProjects = projects.map(project =>
+          project.id === selectedProject.id
+            ? { ...project, tasks: [...project.tasks, task] }
+            : project
+        );
+        setProjects(updatedProjects);
+        setNewTask({ title: '', description: '', deadline: '' });
+        setShowCreateTask(false);
+        setSelectedProject(null);
+      } else {
+        const error = await response.json();
+        alert(error.error || 'Failed to create task');
+      }
     } catch (error) {
       console.error('Error creating task:', error);
       alert('Failed to create task');
@@ -300,25 +223,29 @@ const Dashboard = () => {
 
   const updateTaskStatus = async (taskId: string, newStatus: 'TODO' | 'IN_PROGRESS' | 'DONE') => {
     try {
-      // BACKEND CALL: Replace with actual API call to update task status
-      console.log(`Would update task ${taskId} status to ${newStatus}`);
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: newStatus,
+        }),
+      });
 
-      // Mock task update
-      const updatedProjects = projects.map(project => ({
-        ...project,
-        tasks: project.tasks.map(task =>
-          task.id === taskId ? { ...task, status: newStatus } : task
-        )
-      }));
-      setProjects(updatedProjects);
+      if (response.ok) {
+        const updatedTask = await response.json();
+        const updatedProjects = projects.map(project => ({
+          ...project,
+          tasks: project.tasks.map(task =>
+            task.id === taskId ? updatedTask : task
+          )
+        }));
+        setProjects(updatedProjects);
+      }
     } catch (error) {
       console.error('Error updating task:', error);
     }
-  };
-
-  const handleSignOut = () => {
-    // BACKEND CALL: Replace with actual sign out logic
-    console.log('Would sign out user');
   };
 
   const getDaysUntilDeadline = (deadline: string) => {
@@ -376,7 +303,6 @@ const Dashboard = () => {
       </div>
     );
   }
-
   if (!session) {
     return null;
   }
@@ -401,7 +327,7 @@ const Dashboard = () => {
             <div>
               {session.user && (
                 <button 
-                  onClick={handleSignOut}
+                  onClick={() => signOut()}
                   className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
                 >
                   Logout

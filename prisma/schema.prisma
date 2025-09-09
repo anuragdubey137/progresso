@@ -12,8 +12,9 @@ model User {
   username    String          @unique
   name      String?
   password  String
-  projects  ProjectMember[]
+  members  ProjectMember[]
   tasks     Task[]
+  projects  Project[] @relation("ProjectOwner")
 }
 
 model Project {
@@ -22,6 +23,8 @@ model Project {
   deadline  DateTime?
   members   ProjectMember[]
   tasks     Task[]
+  ownerId   String
+  owner     User             @relation("ProjectOwner", fields: [ownerId], references: [id])
 }
 
 model ProjectMember {

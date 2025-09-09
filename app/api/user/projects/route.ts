@@ -15,12 +15,18 @@ export async function POST (req:NextRequest){
         projects
     })
 }
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const username = searchParams.get('username');
 
-export async function GET(req:NextRequest){
-    try{
-    const project = await prismaClient.project.findMany();
-    return NextResponse.json(project);
-}   catch(error){
-    return NextResponse.json({error:"Something went wrong"});
-}
+    const projects = await prismaClient.project.findMany({
+      where: username ? { User: { some: { username: username } } } : {},
+      include: { User: true }, 
+    });
+
+    return NextResponse.json(projects);
+  } catch (error) {
+    return NextResponse.json({ error: "Something went wrong" });
+  }
 }
