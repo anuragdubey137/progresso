@@ -31,7 +31,7 @@ if (!projectExists) {
     
     const projectMember = await prismaClient.projectMember.create({
         data:{
-            userId : user.id,
+            userId : body.userId,
             projectId : body.projectId
         }
 
