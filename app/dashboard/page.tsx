@@ -1,8 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { signOut, useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
 import { 
   Plus, 
   Calendar, 
@@ -10,15 +8,14 @@ import {
   CheckCircle2, 
   Clock, 
   AlertTriangle,
-  MoreVertical,
-  User,
   Trash2,
-  Edit3,
   UserPlus,
   X,
-  PlayCircle
+  PlayCircle,
+  Settings,
+  Filter,
+  Search
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 
 interface Task {
   id: string;
@@ -28,6 +25,10 @@ interface Task {
   deadline?: string;
   projectId: string;
   assigneeId?: string;
+  assignee?: {
+    id: string;
+    username: string;
+  };
 }
 
 interface ProjectMember {
@@ -37,7 +38,6 @@ interface ProjectMember {
   user: {
     id: string;
     username: string;
-    name?: string;
   };
 }
 
@@ -45,20 +45,34 @@ interface Project {
   id: string;
   name: string;
   deadline?: string;
-  projects: Project[];
+  ownerId: string;
+  owner: {
+    id: string;
+    username: string;
+  };
+  members: ProjectMember[];
   tasks: Task[];
 }
 
 const Dashboard = () => {
-  const { data: session, status } = useSession();
-  const router = useRouter();
+  // Mock session data
+  const session = {
+    user: {
+      id: 'user1',
+      name: 'John Doe',
+      email: 'john@example.com'
+    }
+  };
   
   const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
+  const [showProjectSettings, setShowProjectSettings] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed'>('all');
   
   const [newProject, setNewProject] = useState({
     name: '',
@@ -72,180 +86,266 @@ const Dashboard = () => {
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
-    deadline: ''
+    deadline: '',
+    assigneeUsername: ''
   });
 
-  // Redirect if not authenticated
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/api/auth/signin');
-    }
-  }, [status, router]);
+  const [error, setError] = useState<string | null>(null);
 
-  // Fetch projects on component mount
+  // Initialize with sample data
   useEffect(() => {
-    if (session?.user) {
-      fetchProjects();
-    }
-  }, [session]);
-
-  const fetchProjects = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch('/api/projects');
-      if (response.ok) {
-        const data = await response.json();
-        setProjects(data);
-      } else {
-        console.error('Failed to fetch projects');
+    const sampleProjects: Project[] = [
+      {
+        id: 'proj1',
+        name: 'Website Redesign',
+        deadline: '2025-10-15',
+        ownerId: 'user1',
+        owner: {
+          id: 'user1',
+          username: 'johndoe'
+        },
+        members: [
+          {
+            id: 'member1',
+            userId: 'user1',
+            projectId: 'proj1',
+            user: { id: 'user1', username: 'johndoe' }
+          },
+          {
+            id: 'member2',
+            userId: 'user2',
+            projectId: 'proj1',
+            user: { id: 'user2', username: 'jane_dev' }
+          }
+        ],
+        tasks: [
+          {
+            id: 'task1',
+            title: 'Create mockups',
+            description: 'Design new homepage mockups',
+            status: 'DONE',
+            deadline: '2025-09-20',
+            projectId: 'proj1',
+            assigneeId: 'user2',
+            assignee: { id: 'user2', username: 'jane_dev' }
+          },
+          {
+            id: 'task2',
+            title: 'Implement responsive design',
+            description: 'Make the website mobile-friendly',
+            status: 'IN_PROGRESS',
+            deadline: '2025-10-10',
+            projectId: 'proj1',
+            assigneeId: 'user1',
+            assignee: { id: 'user1', username: 'johndoe' }
+          },
+          {
+            id: 'task3',
+            title: 'Write content',
+            description: 'Create copy for all pages',
+            status: 'TODO',
+            projectId: 'proj1'
+          }
+        ]
+      },
+      {
+        id: 'proj2',
+        name: 'Mobile App Development',
+        deadline: '2025-12-01',
+        ownerId: 'user1',
+        owner: {
+          id: 'user1',
+          username: 'johndoe'
+        },
+        members: [
+          {
+            id: 'member3',
+            userId: 'user1',
+            projectId: 'proj2',
+            user: { id: 'user1', username: 'johndoe' }
+          }
+        ],
+        tasks: [
+          {
+            id: 'task4',
+            title: 'Setup project structure',
+            description: 'Initialize React Native project',
+            status: 'TODO',
+            projectId: 'proj2'
+          }
+        ]
       }
-    } catch (error) {
-      console.error('Error fetching projects:', error);
-    } finally {
-      setLoading(false);
-    }
+    ];
+    
+    setProjects(sampleProjects);
+  }, []);
+
+  const generateId = () => {
+    return Math.random().toString(36).substr(2, 9);
   };
 
-  const handleCreateProject = async () => {
-    if (!newProject.name) {
-      alert('Please enter a project name');
+  const handleCreateProject = () => {
+    if (!newProject.name.trim()) {
+      setError('Please enter a project name');
       return;
     }
 
     try {
-      const response = await fetch('/api/projects', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      setError(null);
+      const project: Project = {
+        id: generateId(),
+        name: newProject.name,
+        deadline: newProject.deadline || undefined,
+        ownerId: session.user.id,
+        owner: {
+          id: session.user.id,
+          username: session.user.name?.toLowerCase().replace(' ', '') || 'user'
         },
-        body: JSON.stringify({
-          name: newProject.name,
-          deadline: newProject.deadline || null,
-        }),
-      });
+        members: [
+          {
+            id: generateId(),
+            userId: session.user.id,
+            projectId: generateId(),
+            user: {
+              id: session.user.id,
+              username: session.user.name?.toLowerCase().replace(' ', '') || 'user'
+            }
+          }
+        ],
+        tasks: []
+      };
 
-      if (response.ok) {
-        const project = await response.json();
-        setProjects([...projects, project]);
-        setNewProject({ name: '', deadline: '' });
-        setShowCreateProject(false);
-      } else {
-        const error = await response.json();
-        alert(error.error || 'Failed to create project');
-      }
+      setProjects(prev => [...prev, project]);
+      setNewProject({ name: '', deadline: '' });
+      setShowCreateProject(false);
     } catch (error) {
       console.error('Error creating project:', error);
-      alert('Failed to create project');
+      setError('Failed to create project');
     }
   };
 
-  const handleAddMember = async () => {
-    if (!newMember.username || !selectedProject) {
-      alert('Please enter a username');
+  const handleDeleteProject = (projectId: string) => {
+    if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
+      return;
+    }
+
+    setProjects(prev => prev.filter(p => p.id !== projectId));
+    setShowProjectSettings(false);
+    setSelectedProject(null);
+  };
+
+  const handleAddMember = () => {
+    if (!newMember.username.trim() || !selectedProject) {
+      setError('Please enter a username');
       return;
     }
 
     try {
-      const response = await fetch('/api/projects/projectMember', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          projectId: selectedProject.id,
-          username: newMember.username,
-        }),
-      });
+      setError(null);
+      const member: ProjectMember = {
+        id: generateId(),
+        userId: generateId(),
+        projectId: selectedProject.id,
+        user: {
+          id: generateId(),
+          username: newMember.username.trim()
+        }
+      };
 
-      if (response.ok) {
-        const member = await response.json();
-        // Update the project in state
-        const updatedProjects = projects.map(project =>
-          project.id === selectedProject.id
-            ? { ...project, members: [...project.members, member] }
-            : project
-        );
-        setProjects(updatedProjects);
-        setNewMember({ username: '' });
-        setShowAddMember(false);
-        setSelectedProject(null);
-      } else {
-        const error = await response.json();
-        alert(error.error || 'Failed to add member');
-      }
+      setProjects(prev => prev.map(project =>
+        project.id === selectedProject.id
+          ? { ...project, members: [...project.members, member] }
+          : project
+      ));
+      setNewMember({ username: '' });
+      setShowAddMember(false);
+      setSelectedProject(null);
     } catch (error) {
       console.error('Error adding member:', error);
-      alert('Failed to add member');
+      setError('Failed to add member');
     }
   };
 
-  const handleCreateTask = async () => {
-    if (!newTask.title || !selectedProject) {
-      alert('Please enter a task title');
+  const handleRemoveMember = (memberId: string) => {
+    if (!confirm('Are you sure you want to remove this member?')) {
+      return;
+    }
+
+    setProjects(prev => prev.map(project => ({
+      ...project,
+      members: project.members.filter(m => m.id !== memberId)
+    })));
+  };
+
+  const handleCreateTask = () => {
+    if (!newTask.title.trim() || !selectedProject) {
+      setError('Please enter a task title');
       return;
     }
 
     try {
-      const response = await fetch('/api/projects/task', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title: newTask.title,
-          description: newTask.description || null,
-          deadline: newTask.deadline || null,
-          projectId: selectedProject.id,
-        }),
-      });
-
-      if (response.ok) {
-        const task = await response.json();
-        // Update the project in state
-        const updatedProjects = projects.map(project =>
-          project.id === selectedProject.id
-            ? { ...project, tasks: [...project.tasks, task] }
-            : project
+      setError(null);
+      let assignee = null;
+      
+      if (newTask.assigneeUsername.trim()) {
+        // Find assignee in project members
+        const member = selectedProject.members.find(m => 
+          m.user.username.toLowerCase() === newTask.assigneeUsername.trim().toLowerCase()
         );
-        setProjects(updatedProjects);
-        setNewTask({ title: '', description: '', deadline: '' });
-        setShowCreateTask(false);
-        setSelectedProject(null);
-      } else {
-        const error = await response.json();
-        alert(error.error || 'Failed to create task');
+        if (member) {
+          assignee = {
+            id: member.userId,
+            username: member.user.username
+          };
+        }
       }
+
+      const task: Task = {
+        id: generateId(),
+        title: newTask.title.trim(),
+        description: newTask.description.trim() || undefined,
+        status: 'TODO',
+        deadline: newTask.deadline || undefined,
+        projectId: selectedProject.id,
+      };
+
+      setProjects(prev => prev.map(project =>
+        project.id === selectedProject.id
+          ? { ...project, tasks: [...project.tasks, task] }
+          : project
+      ));
+      setNewTask({ 
+        title: '', 
+        description: '', 
+        deadline: '', 
+        assigneeUsername: ''
+      });
+      setShowCreateTask(false);
+      setSelectedProject(null);
     } catch (error) {
       console.error('Error creating task:', error);
-      alert('Failed to create task');
+      setError('Failed to create task');
     }
   };
 
-  const updateTaskStatus = async (taskId: string, newStatus: 'TODO' | 'IN_PROGRESS' | 'DONE') => {
-    try {
-      const response = await fetch(`/api/tasks/${taskId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status: newStatus,
-        }),
-      });
-
-      if (response.ok) {
-        const updatedTask = await response.json();
-        const updatedProjects = projects.map(project => ({
-          ...project,
-          tasks: project.tasks.map(task =>
-            task.id === taskId ? updatedTask : task
-          )
-        }));
-        setProjects(updatedProjects);
-      }
-    } catch (error) {
-      console.error('Error updating task:', error);
+  const handleDeleteTask = (taskId: string) => {
+    if (!confirm('Are you sure you want to delete this task?')) {
+      return;
     }
+
+    setProjects(prev => prev.map(project => ({
+      ...project,
+      tasks: project.tasks.filter(t => t.id !== taskId)
+    })));
+  };
+
+  const updateTaskStatus = (taskId: string, newStatus: 'TODO' | 'IN_PROGRESS' | 'DONE') => {
+    setProjects(prev => prev.map(project => ({
+      ...project,
+      tasks: project.tasks.map(task =>
+        task.id === taskId ? { ...task, status: newStatus } : task
+      )
+    })));
   };
 
   const getDaysUntilDeadline = (deadline: string) => {
@@ -296,15 +396,33 @@ const Dashboard = () => {
     }
   };
 
-  if (status === 'loading' || loading) {
+  const filteredProjects = projects.filter(project => {
+    if (!project?.name) return false;
+
+    const matchesSearch = project.name.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesFilter = () => {
+      switch (filterStatus) {
+        case 'active':
+          return getTaskProgress(project.tasks || []) < 100;
+        case 'completed':
+          return getTaskProgress(project.tasks || []) === 100;
+        default:
+          return true;
+      }
+    };
+
+    return matchesSearch && matchesFilter();
+  });
+
+  const resetError = () => setError(null);
+
+  if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
       </div>
     );
-  }
-  if (!session) {
-    return null;
   }
 
   return (
@@ -317,26 +435,44 @@ const Dashboard = () => {
               <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
               <p className="text-gray-600">Welcome back, {session.user?.name || session.user?.email}</p>
             </div>
-            <button
-              onClick={() => setShowCreateProject(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              New Project
-            </button>
-            <div>
-              {session.user && (
-                <button 
-                  onClick={() => signOut()}
-                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
-                >
-                  Logout
-                </button>
-              )}
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => setShowCreateProject(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                New Project
+              </button>
+              <button 
+                onClick={() => alert('Logout functionality removed')}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                Logout
+              </button>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center">
+                <AlertTriangle className="w-4 h-4 mr-2" />
+                {error}
+              </div>
+              <button
+                onClick={resetError}
+                className="text-red-700 hover:text-red-900"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -363,7 +499,7 @@ const Dashboard = () => {
                 <p className="text-sm font-medium text-gray-600">Completed Tasks</p>
                 <p className="text-2xl font-bold text-gray-900">
                   {projects.reduce(
-                    (acc, p) => acc + ((p.tasks?.filter(t => t.status === 'DONE').length) ?? 0),
+                    (acc, p) => acc + (p.tasks?.filter(t => t.status === 'DONE').length || 0),
                     0
                   )}
                 </p>
@@ -379,7 +515,10 @@ const Dashboard = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">In Progress</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {projects.reduce((acc, p) => acc + (p?.tasks?.filter(t => t.status === 'IN_PROGRESS').length ?? 0), 0)}
+                  {projects.reduce(
+                    (acc, p) => acc + (p.tasks?.filter(t => t.status === 'IN_PROGRESS').length || 0),
+                    0
+                  )}
                 </p>
               </div>
             </div>
@@ -393,18 +532,47 @@ const Dashboard = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Team Members</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {projects.reduce((acc, p) => acc + (p?.members?.length ?? 0), 0)}
+                  {projects.reduce((acc, p) => acc + (p.members?.length || 0), 0)}
                 </p>
               </div>
             </div>
           </div>
         </div>
 
+        {/* Search and Filter Bar */}
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1 relative">
+              <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search projects..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-gray-400" />
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value as 'all' | 'active' | 'completed')}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">All Projects</option>
+                <option value="active">Active</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         {/* Projects Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {projects.map((project) => {
+          {filteredProjects.map((project) => {
             const progress = getTaskProgress(project.tasks);
             const daysLeft = project.deadline ? getDaysUntilDeadline(project.deadline) : null;
+            const isOwner = project.ownerId === session?.user?.id;
             
             return (
               <div key={project.id} className="bg-white rounded-lg shadow-sm border hover:shadow-md transition-shadow">
@@ -412,7 +580,13 @@ const Dashboard = () => {
                 <div className="p-6 border-b">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900">{project.name}</h3>
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900">{project.name}</h3>
+                        {isOwner && (
+                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Owner</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500">Owner: {project.owner?.username || 'Unknown'}</p>
                       
                       <div className="flex items-center mt-3 space-x-4">
                         {project.deadline && (
@@ -427,10 +601,31 @@ const Dashboard = () => {
                         )}
                         <div className="flex items-center text-sm text-gray-600">
                           <Users className="w-4 h-4 mr-1 text-gray-400" />
-                          {project?.members?.length ?? 0} members
+                          {project.members?.length || 0} members
                         </div>
                       </div>
                     </div>
+                    
+                    {/* Project Actions */}
+                    {isOwner && (
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => {
+                            setSelectedProject(project);
+                            setShowProjectSettings(true);
+                          }}
+                          className="p-2 text-gray-400 hover:text-gray-600 rounded"
+                        >
+                          <Settings className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProject(project.id)}
+                          className="p-2 text-red-400 hover:text-red-600 rounded"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -442,7 +637,9 @@ const Dashboard = () => {
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      className={`h-2 rounded-full transition-all duration-300 ${
+                        progress === 100 ? 'bg-green-600' : 'bg-blue-600'
+                      }`}
                       style={{ width: `${progress}%` }}
                     ></div>
                   </div>
@@ -451,7 +648,7 @@ const Dashboard = () => {
                 {/* Tasks Section */}
                 <div className="p-6">
                   <div className="flex justify-between items-center mb-4">
-                    <h4 className="font-medium text-gray-900">Tasks ({project?.tasks?.length ?? 0})</h4>
+                    <h4 className="font-medium text-gray-900">Tasks ({project.tasks?.length || 0})</h4>
                     <button 
                       onClick={() => {
                         setSelectedProject(project);
@@ -464,8 +661,8 @@ const Dashboard = () => {
                   </div>
                   
                   <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {project?.tasks?.slice(0, 5).map((task) => (
-                      <div key={task.id} className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded">
+                    {project.tasks?.slice(0, 5).map((task) => (
+                      <div key={task.id} className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded group">
                         <button
                           onClick={() => updateTaskStatus(task.id, getNextStatus(task.status) as any)}
                           className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${
@@ -478,21 +675,41 @@ const Dashboard = () => {
                         >
                           {getStatusIcon(task.status)}
                         </button>
-                        <span className={`flex-1 text-sm ${task.status === 'DONE' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
-                          {task.title}
-                        </span>
-                        <span className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${getStatusColor(task.status)}`}>
-                          {getStatusIcon(task.status)}
-                          {task.status.replace('_', ' ')}
-                        </span>
+                        <div className="flex-1 min-w-0">
+                          <span className={`text-sm ${task.status === 'DONE' ? 'text-gray-500 line-through' : 'text-gray-900'} truncate block`}>
+                            {task.title}
+                          </span>
+                          {task.assignee && (
+                            <p className="text-xs text-gray-500 truncate">Assigned to: {task.assignee.username}</p>
+                          )}
+                          {task.deadline && (
+                            <p className={`text-xs ${getDeadlineStatus(task.deadline)} truncate`}>
+                              Due: {new Date(task.deadline).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${getStatusColor(task.status)}`}>
+                            {getStatusIcon(task.status)}
+                            {task.status.replace('_', ' ')}
+                          </span>
+                          {isOwner && (
+                            <button
+                              onClick={() => handleDeleteTask(task.id)}
+                              className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:text-red-600 rounded transition-opacity"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
-                    {(project?.tasks?.length ?? 0) > 5 && (
+                    {(project.tasks?.length || 0) > 5 && (
                       <p className="text-sm text-gray-500 text-center py-2">
-                        +{(project?.tasks?.length ?? 0) - 5} more tasks
+                        +{(project.tasks?.length || 0) - 5} more tasks
                       </p>
                     )}
-                    {(project?.tasks?.length ?? 0) === 0 && (
+                    {(project.tasks?.length || 0) === 0 && (
                       <p className="text-sm text-gray-500 text-center py-4">No tasks yet</p>
                     )}
                   </div>
@@ -513,22 +730,34 @@ const Dashboard = () => {
                     </button>
                   </div>
                   
-                  <div className="flex -space-x-2">
-                    {project?.members?.slice(0, 5).map((member) => (
+                  <div className="flex flex-wrap gap-2">
+                    {project.members?.slice(0, 5).map((member) => (
                       <div
                         key={member.id}
-                        className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium border-2 border-white"
-                        title={`${member.user.name || member.user.username}`}
+                        className="group relative"
                       >
-                        {(member.user.name || member.user.username).charAt(0).toUpperCase()}
+                        <div
+                          className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium border-2 border-white cursor-pointer hover:bg-blue-600 transition-colors"
+                          title={member.user.username}
+                        >
+                          {member.user.username.charAt(0).toUpperCase()}
+                        </div>
+                        {isOwner && member.userId !== project.ownerId && (
+                          <button
+                            onClick={() => handleRemoveMember(member.id)}
+                            className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X className="w-2 h-2" />
+                          </button>
+                        )}
                       </div>
                     ))}
-                    {(project?.members?.length ?? 0) > 5 && (
+                    {(project.members?.length || 0) > 5 && (
                       <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-xs font-medium border-2 border-white">
-                        +{(project?.members?.length ?? 0) - 5}
+                        +{(project.members?.length || 0) - 5}
                       </div>
                     )}
-                    {(project?.members?.length ?? 0) === 0 && (
+                    {(project.members?.length || 0) === 0 && (
                       <p className="text-sm text-gray-500">No members yet</p>
                     )}
                   </div>
@@ -538,27 +767,37 @@ const Dashboard = () => {
           })}
         </div>
 
-        {projects.length === 0 && (
+        {filteredProjects.length === 0 && !loading && (
           <div className="text-center py-12">
             <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No projects yet</h3>
-            <p className="text-gray-600 mb-6">Get started by creating your first project</p>
-            <button
-              onClick={() => setShowCreateProject(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg"
-            >
-              Create Project
-            </button>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              {searchTerm || filterStatus !== 'all' ? 'No projects found' : 'No projects yet'}
+            </h3>
+            <p className="text-gray-600 mb-6">
+              {searchTerm || filterStatus !== 'all' 
+                ? 'Try adjusting your search or filter criteria'
+                : 'Get started by creating your first project'
+              }
+            </p>
+            {!searchTerm && filterStatus === 'all' && (
+              <button
+                onClick={() => setShowCreateProject(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg inline-flex items-center gap-2 transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+                Create Your First Project
+              </button>
+            )}
           </div>
         )}
       </div>
 
       {/* Create Project Modal */}
       {showCreateProject && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Create New Project</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Create New Project</h3>
               <button
                 onClick={() => setShowCreateProject(false)}
                 className="text-gray-400 hover:text-gray-600"
@@ -583,7 +822,7 @@ const Dashboard = () => {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Deadline
+                  Deadline (optional)
                 </label>
                 <input
                   type="date"
@@ -594,16 +833,16 @@ const Dashboard = () => {
               </div>
             </div>
             
-            <div className="flex space-x-3 mt-6">
+            <div className="flex justify-end space-x-3 mt-6">
               <button
                 onClick={() => setShowCreateProject(false)}
-                className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreateProject}
-                className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
               >
                 Create Project
               </button>
@@ -614,10 +853,10 @@ const Dashboard = () => {
 
       {/* Add Member Modal */}
       {showAddMember && selectedProject && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Add Team Member</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Add Team Member</h3>
               <button
                 onClick={() => {
                   setShowAddMember(false);
@@ -627,6 +866,10 @@ const Dashboard = () => {
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+            
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">Project: {selectedProject.name}</p>
             </div>
             
             <div className="space-y-4">
@@ -637,26 +880,26 @@ const Dashboard = () => {
                 <input
                   type="text"
                   value={newMember.username}
-                  onChange={(e) => setNewMember({ ...newMember, username: e.target.value })}
+                  onChange={(e) => setNewMember({ username: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter username"
                 />
               </div>
             </div>
             
-            <div className="flex space-x-3 mt-6">
+            <div className="flex justify-end space-x-3 mt-6">
               <button
                 onClick={() => {
                   setShowAddMember(false);
                   setSelectedProject(null);
                 }}
-                className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddMember}
-                className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
               >
                 Add Member
               </button>
@@ -667,10 +910,10 @@ const Dashboard = () => {
 
       {/* Create Task Modal */}
       {showCreateTask && selectedProject && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Create New Task</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Create New Task</h3>
               <button
                 onClick={() => {
                   setShowCreateTask(false);
@@ -680,6 +923,10 @@ const Dashboard = () => {
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+            
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">Project: {selectedProject.name}</p>
             </div>
             
             <div className="space-y-4">
@@ -698,20 +945,20 @@ const Dashboard = () => {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
+                  Description (optional)
                 </label>
                 <textarea
                   value={newTask.description}
                   onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
-                  placeholder="Task description"
-                ></textarea>
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter task description"
+                />
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Deadline
+                  Deadline (optional)
                 </label>
                 <input
                   type="date"
@@ -720,23 +967,146 @@ const Dashboard = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Assign to (optional)
+                </label>
+                <input
+                  type="text"
+                  value={newTask.assigneeUsername}
+                  onChange={(e) => setNewTask({ ...newTask, assigneeUsername: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter username"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  User must be a project member
+                </p>
+              </div>
             </div>
             
-            <div className="flex space-x-3 mt-6">
+            <div className="flex justify-end space-x-3 mt-6">
               <button
                 onClick={() => {
                   setShowCreateTask(false);
                   setSelectedProject(null);
                 }}
-                className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreateTask}
-                className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
               >
                 Create Task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Project Settings Modal */}
+      {showProjectSettings && selectedProject && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Project Settings</h3>
+              <button
+                onClick={() => {
+                  setShowProjectSettings(false);
+                  setSelectedProject(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium text-gray-900 mb-2">{selectedProject.name}</h4>
+                <p className="text-sm text-gray-600">
+                  Created by: {selectedProject.owner?.username || 'Unknown'}
+                </p>
+                {selectedProject.deadline && (
+                  <p className="text-sm text-gray-600">
+                    Deadline: {new Date(selectedProject.deadline).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+              
+              <div>
+                <h5 className="font-medium text-gray-900 mb-2">Team Members ({selectedProject.members?.length || 0})</h5>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {selectedProject.members?.map((member) => (
+                    <div key={member.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                          {member.user.username.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-sm text-gray-900">{member.user.username}</span>
+                        {member.userId === selectedProject.ownerId && (
+                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Owner</span>
+                        )}
+                      </div>
+                      {member.userId !== selectedProject.ownerId && (
+                        <button
+                          onClick={() => handleRemoveMember(member.id)}
+                          className="text-red-400 hover:text-red-600"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {(selectedProject.members?.length || 0) === 0 && (
+                    <p className="text-sm text-gray-500 text-center py-2">No members yet</p>
+                  )}
+                </div>
+              </div>
+              
+              <div>
+                <h5 className="font-medium text-gray-900 mb-2">Tasks ({selectedProject.tasks?.length || 0})</h5>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-gray-50 p-2 rounded">
+                    <p className="text-sm font-medium text-gray-900">
+                      {selectedProject.tasks?.filter(t => t.status === 'TODO').length || 0}
+                    </p>
+                    <p className="text-xs text-gray-600">To Do</p>
+                  </div>
+                  <div className="bg-blue-50 p-2 rounded">
+                    <p className="text-sm font-medium text-blue-900">
+                      {selectedProject.tasks?.filter(t => t.status === 'IN_PROGRESS').length || 0}
+                    </p>
+                    <p className="text-xs text-blue-600">In Progress</p>
+                  </div>
+                  <div className="bg-green-50 p-2 rounded">
+                    <p className="text-sm font-medium text-green-900">
+                      {selectedProject.tasks?.filter(t => t.status === 'DONE').length || 0}
+                    </p>
+                    <p className="text-xs text-green-600">Done</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-between mt-6">
+              <button
+                onClick={() => handleDeleteProject(selectedProject.id)}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Project
+              </button>
+              <button
+                onClick={() => {
+                  setShowProjectSettings(false);
+                  setSelectedProject(null);
+                }}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors"
+              >
+                Close
               </button>
             </div>
           </div>

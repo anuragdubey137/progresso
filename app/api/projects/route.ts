@@ -16,4 +16,9 @@ export async function POST (req:NextRequest){
         projects
     })
 }
-
+export async function GET (req:NextRequest){
+    const projects = await prismaClient.project.findMany({})
+    return NextResponse.json({
+        projects
+    })
+}
